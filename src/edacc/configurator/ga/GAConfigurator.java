@@ -2,6 +2,8 @@ package edacc.configurator.ga;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +28,9 @@ class InstanceSeedPair {
 public class GAConfigurator {
     final int populationSize = 50;
     final int generations = 100;
+    final int tournamentSize = 4;
+    final float crossoverProbability = 0.7f;
+    final float mutationProbability = 0.1f;
     
     private int idExperiment;
     private API api;
@@ -36,7 +41,7 @@ public class GAConfigurator {
 
     public static void main(String[] args) throws Exception {
         GAConfigurator ga = new GAConfigurator("localhost", 3306, "edacc",
-                "edaccteam", "EDACC", 16, 3, 5);
+                "edaccteam", "EDACC", 16, 10, 5);
         ga.evolve();
         ga.shutdown();
     }
@@ -73,13 +78,13 @@ public class GAConfigurator {
         return population;
     }
 
-    protected void evaluatePopulation(List<Individual> population) throws Exception {
+    protected void evaluatePopulation(List<Individual> population, int generation) throws Exception {
         List<Integer> jobs = new ArrayList<Integer>();
         for (Individual ind : population) {
             if (ind.getCost() == null) {
-                for (InstanceSeedPair isp: parcour) {
+                for (int i = 0; i < generation*20 && i < parcour.size(); i++) {
                     jobs.add(api.launchJob(idExperiment, ind.getIdSolverConfiguration(),
-                            isp.idInstance, isp.seed, jobCPUTimeLimit));
+                            parcour.get(i).idInstance, parcour.get(i).seed, jobCPUTimeLimit));
                 }
             }
         }
@@ -111,13 +116,73 @@ public class GAConfigurator {
             }
         }
     }
+    
+    protected Individual tournamentSelect(List<Individual> population) {
+        List<Integer> tournament = new ArrayList<Integer>();
+        List<Individual> tournamentIndividuals = new ArrayList<Individual>();
+        for (int i = 0; i < tournamentSize; i++) {
+            int ix;
+            do {
+                ix = rng.nextInt(populationSize);
+            } while (tournament.contains(ix));
+            tournament.add(ix);
+            tournamentIndividuals.add(population.get(ix));
+        }
+        
+        Collections.sort(tournamentIndividuals);
+        return tournamentIndividuals.get(0);
+    }
 
     public void evolve() throws Exception {
         List<Individual> population = initializePopulation(populationSize);
         
+        Individual globalBest = null;
+        
         for (int generation = 1; generation <= generations; generation++) {
-            evaluatePopulation(population);
-            break;
+            evaluatePopulation(population, generation);
+            
+            float sum = 0;
+            for (int i = 0; i < populationSize; i++) {
+                sum += population.get(i).getCost();
+                if (globalBest == null || population.get(i).getCost() < globalBest.getCost()) {
+                    globalBest = population.get(i);
+                }
+            }
+            System.out.println("Generation " + generation + " - global best: " + globalBest.getConfig() +
+                    " with avg. time " + globalBest.getCost() +
+                    " - generation avg: " + sum / populationSize);
+            
+            List<Individual> newPopulation = new ArrayList<Individual>();
+            for (int i = 0; i < populationSize; i++) {
+                if (rng.nextFloat() < crossoverProbability) {
+                    Individual parent1 = tournamentSelect(population);
+                    Individual parent2 = tournamentSelect(population);
+                    while (parent2 == parent1) parent2 = tournamentSelect(population);
+                    ParameterConfiguration child = pspace.crossover(parent1.getConfig(), parent2.getConfig(), rng);
+                    int idSolverConfig = api.createSolverConfig(idExperiment, child, child.toString());
+                    System.out.println(parent1.getConfig() + " + " + parent2.getConfig() + " recombine to " + child);
+                    newPopulation.add(new Individual(idSolverConfig, child));
+                }
+                else {
+                    newPopulation.add(tournamentSelect(population));
+                }
+            }
+            for (int i = 0; i < populationSize; i++) {
+                if (rng.nextFloat() < mutationProbability) {
+                    if (newPopulation.get(i).getCost() == null) { // this is an unevaluated crossover child, only update its config
+                        pspace.mutateParameterConfiguration(rng, newPopulation.get(i).getConfig());
+                    } else {
+                        // this is an already evaluated individual, create a new solver configuration for the mutated version
+                        ParameterConfiguration cfg = new ParameterConfiguration(newPopulation.get(i).getConfig());
+                        pspace.mutateParameterConfiguration(rng, cfg);
+                        int idSolverConfig = api.createSolverConfig(idExperiment, cfg, cfg.toString());
+                        Individual ind = new Individual(idSolverConfig, cfg);
+                        newPopulation.set(i, ind);
+                    }
+                }
+                // replace old population
+                population.set(i, newPopulation.get(i));
+            }
         }
     }
 

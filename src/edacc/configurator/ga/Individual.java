@@ -28,13 +28,11 @@ public class Individual implements Comparable<Individual> {
 	public final int getIdSolverConfiguration() {
 		return idSolverConfiguration;
 	}
+	
+	
 
     @Override
     public int compareTo(Individual o) {
         return this.cost.compareTo(o.cost);
     }
-
-
-	
-	
 }
