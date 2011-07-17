@@ -5,5 +5,6 @@
 	<classpathentry exported="true" kind="lib" path="/home/daniel/development/workspace/edacc_api/dist/EDACCAPI.jar"/>
 	<classpathentry kind="lib" path="/home/daniel/development/workspace/edacc_api/libs/EDACC.jar"/>
 	<classpathentry kind="lib" path="/home/daniel/development/workspace/edacc_api/libs/SevenZip.jar"/>
+	<classpathentry kind="lib" path="/home/daniel/development/workspace/edacc/lib/mysql-connector-java-5.1.13-bin.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>

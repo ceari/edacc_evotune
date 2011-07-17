@@ -26,11 +26,11 @@ class InstanceSeedPair {
 }
 
 public class GAConfigurator {
-    final int populationSize = 50;
+    final int populationSize = 30;
     final int generations = 100;
     final int tournamentSize = 4;
     final float crossoverProbability = 0.7f;
-    final float mutationProbability = 0.1f;
+    final float mutationProbability = 0.05f;
     
     private int idExperiment;
     private API api;
@@ -39,9 +39,13 @@ public class GAConfigurator {
     private ParameterGraph pspace;
     private int jobCPUTimeLimit;
 
-    public static void main(String[] args) throws Exception {
-        GAConfigurator ga = new GAConfigurator("localhost", 3306, "edacc",
-                "edaccteam", "EDACC", 16, 10, 5);
+    public static void main(String... args) throws Exception {
+        if (args.length < 8) {
+            System.out.println("arguments: <hostname> <port> <username> <password> <database> <experiment id> <runs per instance> <job CPU time limit>");
+            return;
+        }
+        GAConfigurator ga = new GAConfigurator(args[0], Integer.valueOf(args[1]), args[2],
+                args[3], args[4], Integer.valueOf(args[5]), Integer.valueOf(args[6]), Integer.valueOf(args[7]));
         ga.evolve();
         ga.shutdown();
     }
@@ -82,7 +86,7 @@ public class GAConfigurator {
         List<Integer> jobs = new ArrayList<Integer>();
         for (Individual ind : population) {
             if (ind.getCost() == null) {
-                for (int i = 0; i < generation*20 && i < parcour.size(); i++) {
+                for (int i = 0; i < parcour.size(); i++) {
                     jobs.add(api.launchJob(idExperiment, ind.getIdSolverConfiguration(),
                             parcour.get(i).idInstance, parcour.get(i).seed, jobCPUTimeLimit));
                 }
@@ -91,7 +95,7 @@ public class GAConfigurator {
         
         Map<Integer, ExperimentResult> results;
         while (true) {
-            Thread.sleep(2000);
+            Thread.sleep(4000);
             boolean all_done = true;
             results = api.getJobsByIDs(jobs);
             for (ExperimentResult result: results.values()) {
@@ -106,12 +110,12 @@ public class GAConfigurator {
             if (!individual_time_sum.containsKey(result.getSolverConfigId()))
                 individual_time_sum.put(result.getSolverConfigId(), 0.0f);
             individual_time_sum.put(result.getSolverConfigId(),
-                        individual_time_sum.get(result.getSolverConfigId()) + result.getResultTime());
+                        individual_time_sum.get(result.getSolverConfigId()) + result.getResultTime() * (result.getResultCode().getResultCode() > 0 ? 1 : 10));
         }
         
         for (Individual ind: population) {
             if (ind.getCost() == null) {
-                // averate result time is the cost
+                // par10 result time is the cost
                 ind.setCost(individual_time_sum.get(ind.getIdSolverConfiguration()) / parcour.size());
             }
         }
@@ -149,8 +153,8 @@ public class GAConfigurator {
                 }
             }
             System.out.println("Generation " + generation + " - global best: " + globalBest.getConfig() +
-                    " with avg. time " + globalBest.getCost() +
-                    " - generation avg: " + sum / populationSize);
+                    " with par10 time " + globalBest.getCost() +
+                    " - generation avg par10: " + sum / populationSize);
             
             List<Individual> newPopulation = new ArrayList<Individual>();
             for (int i = 0; i < populationSize; i++) {
@@ -160,7 +164,7 @@ public class GAConfigurator {
                     while (parent2 == parent1) parent2 = tournamentSelect(population);
                     ParameterConfiguration child = pspace.crossover(parent1.getConfig(), parent2.getConfig(), rng);
                     int idSolverConfig = api.createSolverConfig(idExperiment, child, child.toString());
-                    System.out.println(parent1.getConfig() + " + " + parent2.getConfig() + " recombine to " + child);
+                    //System.out.println(parent1.getConfig() + " + " + parent2.getConfig() + " recombine to " + child);
                     newPopulation.add(new Individual(idSolverConfig, child));
                 }
                 else {
@@ -175,9 +179,11 @@ public class GAConfigurator {
                         // this is an already evaluated individual, create a new solver configuration for the mutated version
                         ParameterConfiguration cfg = new ParameterConfiguration(newPopulation.get(i).getConfig());
                         pspace.mutateParameterConfiguration(rng, cfg);
-                        int idSolverConfig = api.createSolverConfig(idExperiment, cfg, cfg.toString());
-                        Individual ind = new Individual(idSolverConfig, cfg);
-                        newPopulation.set(i, ind);
+                        if (!cfg.equals(newPopulation.get(i).getConfig())) { // mutation didn't change the parameters, don't create new config
+                            int idSolverConfig = api.createSolverConfig(idExperiment, cfg, cfg.toString());
+                            Individual ind = new Individual(idSolverConfig, cfg);
+                            newPopulation.set(i, ind);
+                        }
                     }
                 }
                 // replace old population
