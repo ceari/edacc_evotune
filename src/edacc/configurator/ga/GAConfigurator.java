@@ -56,11 +56,11 @@ class InstanceSeedPair {
  * The cost of an inidividual is its par10 runtime of all runs.
  */
 public class GAConfigurator {
-    final int populationSize = 50;
-    final int tournamentSize = 5;
-    final float crossoverProbability = 0.7f;
+    final int populationSize = 30;
+    final int tournamentSize = 3;
+    final float crossoverProbability = 0.8f;
     final float mutationProbability = 0.05f;
-    final float mutationStandardDeviationFactor = 0.1f;
+    final float mutationStandardDeviationFactor = 0.05f;
     
     private int idExperiment;
     private API api;
@@ -126,7 +126,7 @@ public class GAConfigurator {
         
         Map<Integer, ExperimentResult> results;
         while (true) {
-            Thread.sleep(2000);
+            Thread.sleep(3000);
             boolean all_done = true;
             results = api.getJobsByIDs(jobs);
             for (ExperimentResult result: results.values()) {
@@ -201,17 +201,21 @@ public class GAConfigurator {
                     globalBest = population.get(i);
                 }
             }
+            // update generationAverage
             generationAverage = sum / populationSize;
+            
+            // print some information
             System.out.println("Generation " + generation + " - global best: " + globalBest.getConfig() +
                     " with par10 time " + globalBest.getCost() +
                     " - generation avg par10: " + generationAverage);
             
             List<Individual> newPopulation = new ArrayList<Individual>();
+            // recombination
             for (int i = 0; i < populationSize; i++) {
                 if (rng.nextFloat() < crossoverProbability) {
                     Individual parent1 = tournamentSelect(population);
                     Individual parent2 = tournamentSelect(population);
-                    while (parent2 == parent1) parent2 = tournamentSelect(population);
+                    while (parent2.getConfig().equals(parent1.getConfig())) parent2 = tournamentSelect(population);
                     ParameterConfiguration child = pspace.crossover(parent1.getConfig(), parent2.getConfig(), rng);
                     if (api.exists(idExperiment, child) == 0) {
                         // this is actually an individual with a new genome, create a new solver configuration
@@ -227,19 +231,19 @@ public class GAConfigurator {
                     newPopulation.add(tournamentSelect(population));
                 }
             }
+            
+            // mutation
             for (int i = 0; i < populationSize; i++) {
-                if (rng.nextFloat() < mutationProbability) {
-                    if (newPopulation.get(i).getCost() == null) { // this is an unevaluated crossover child, only update its config
-                        pspace.mutateParameterConfiguration(rng, newPopulation.get(i).getConfig(), mutationStandardDeviationFactor);
-                    } else {
-                        // this is an already evaluated individual, create a new solver configuration for the mutated version
-                        ParameterConfiguration cfg = new ParameterConfiguration(newPopulation.get(i).getConfig());
-                        pspace.mutateParameterConfiguration(rng, cfg, mutationStandardDeviationFactor);
-                        if (!cfg.equals(newPopulation.get(i).getConfig())) { // mutation didn't change the parameters, don't create new config
-                            int idSolverConfig = api.createSolverConfig(idExperiment, cfg, cfg.toString());
-                            Individual ind = new Individual(idSolverConfig, cfg);
-                            newPopulation.set(i, ind);
-                        }
+                if (newPopulation.get(i).getCost() == null) { // this is an unevaluated crossover child, only update its config
+                    pspace.mutateParameterConfiguration(rng, newPopulation.get(i).getConfig(), mutationStandardDeviationFactor, mutationProbability);
+                } else {
+                    // this is an already evaluated individual, create a new solver configuration for the mutated version
+                    ParameterConfiguration cfg = new ParameterConfiguration(newPopulation.get(i).getConfig());
+                    pspace.mutateParameterConfiguration(rng, cfg, mutationStandardDeviationFactor, mutationProbability);
+                    if (!cfg.equals(newPopulation.get(i).getConfig())) { // mutation didn't change the parameters, don't create new config
+                        int idSolverConfig = api.createSolverConfig(idExperiment, cfg, cfg.toString());
+                        Individual ind = new Individual(idSolverConfig, cfg);
+                        newPopulation.set(i, ind);
                     }
                 }
                 // replace old population
