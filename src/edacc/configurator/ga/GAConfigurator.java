@@ -15,6 +15,7 @@ import edacc.model.Instance;
 import edacc.parameterspace.ParameterConfiguration;
 import edacc.parameterspace.graph.ParameterGraph;
 
+/** Parcour entries */
 class InstanceSeedPair {
     protected int idInstance;
     protected BigInteger seed;
@@ -25,12 +26,41 @@ class InstanceSeedPair {
     }
 }
 
+/**
+ * Genetic algorithm configurator using the EDACC API.
+ * 
+ * Algorithm:
+ * initialize & evaluate population
+ * while not termination criterion reached do:
+ *    do #populationSize of times:
+ *        with a crossover probability select 2 parents, recombine them, add child to new generation
+ *        otherwise copy one individual into new generation
+ *    
+ *    with a mutation probability mutate an individual of the new generation
+ *    
+ *    replace old generation with new generation
+ *    evaluate population
+ *    
+ * ----
+ * 
+ * Termination criterion: generation average cost has to be better than 0.95 times the average
+ * of the prevrious generation in order to continue
+ * 
+ * Parent selection is done via tournament selection of size 5.
+ * 5 individuals of the current population are picked at random and the best
+ * is selected.
+ * 
+ * ----
+ * 
+ * Evaluation of each individual is done on all instances of the EDACC experiment.
+ * The cost of an inidividual is its par10 runtime of all runs.
+ */
 public class GAConfigurator {
-    final int populationSize = 30;
-    final int generations = 100;
-    final int tournamentSize = 4;
+    final int populationSize = 50;
+    final int tournamentSize = 5;
     final float crossoverProbability = 0.7f;
     final float mutationProbability = 0.05f;
+    final float mutationStandardDeviationFactor = 0.1f;
     
     private int idExperiment;
     private API api;
@@ -58,6 +88,7 @@ public class GAConfigurator {
         this.idExperiment = idExperiment;
         rng = new Random();
         List<Instance> expInstances = api.getExperimentInstances(idExperiment);
+        // generate parcour, eventually this should come from the database
         parcour = new ArrayList<InstanceSeedPair>();
         for (int i = 0; i < numRunsPerInstance; i++) {
             for (Instance instance : expInstances) {
@@ -95,7 +126,7 @@ public class GAConfigurator {
         
         Map<Integer, ExperimentResult> results;
         while (true) {
-            Thread.sleep(4000);
+            Thread.sleep(2000);
             boolean all_done = true;
             results = api.getJobsByIDs(jobs);
             for (ExperimentResult result: results.values()) {
@@ -136,15 +167,33 @@ public class GAConfigurator {
         Collections.sort(tournamentIndividuals);
         return tournamentIndividuals.get(0);
     }
+    
+    protected boolean terminationCriterion(Float generationAverage, List<Individual> population) {
+        if (generationAverage == null) return false;
+        float sum = 0;
+        for (int i = 0; i < populationSize; i++) {
+            sum += population.get(i).getCost();
+        }
+        float avg = sum / population.size();
+        
+        if (avg > (generationAverage * 0.95)) {
+            // if the current average is not better than 0.95 times the old
+            // average we haven't made significant progress -> terminate
+            return true;
+        }
+        return false;
+    }
 
     public void evolve() throws Exception {
-        List<Individual> population = initializePopulation(populationSize);
-        
         Individual globalBest = null;
+        Float generationAverage = null;
+        int generation = 1;
         
-        for (int generation = 1; generation <= generations; generation++) {
-            evaluatePopulation(population, generation);
-            
+        List<Individual> population = initializePopulation(populationSize);
+        evaluatePopulation(population, generation);
+        
+        while (!terminationCriterion(generationAverage, population)) {
+            // keep track of global best individual
             float sum = 0;
             for (int i = 0; i < populationSize; i++) {
                 sum += population.get(i).getCost();
@@ -152,9 +201,10 @@ public class GAConfigurator {
                     globalBest = population.get(i);
                 }
             }
+            generationAverage = sum / populationSize;
             System.out.println("Generation " + generation + " - global best: " + globalBest.getConfig() +
                     " with par10 time " + globalBest.getCost() +
-                    " - generation avg par10: " + sum / populationSize);
+                    " - generation avg par10: " + generationAverage);
             
             List<Individual> newPopulation = new ArrayList<Individual>();
             for (int i = 0; i < populationSize; i++) {
@@ -163,9 +213,15 @@ public class GAConfigurator {
                     Individual parent2 = tournamentSelect(population);
                     while (parent2 == parent1) parent2 = tournamentSelect(population);
                     ParameterConfiguration child = pspace.crossover(parent1.getConfig(), parent2.getConfig(), rng);
-                    int idSolverConfig = api.createSolverConfig(idExperiment, child, child.toString());
-                    //System.out.println(parent1.getConfig() + " + " + parent2.getConfig() + " recombine to " + child);
-                    newPopulation.add(new Individual(idSolverConfig, child));
+                    if (api.exists(idExperiment, child) == 0) {
+                        // this is actually an individual with a new genome, create a new solver configuration
+                        int idSolverConfig = api.createSolverConfig(idExperiment, child, child.toString());
+                        newPopulation.add(new Individual(idSolverConfig, child));
+                    }
+                    else {
+                        // parents had the same parameters, copy over one of them
+                        newPopulation.add(parent1);
+                    }
                 }
                 else {
                     newPopulation.add(tournamentSelect(population));
@@ -174,11 +230,11 @@ public class GAConfigurator {
             for (int i = 0; i < populationSize; i++) {
                 if (rng.nextFloat() < mutationProbability) {
                     if (newPopulation.get(i).getCost() == null) { // this is an unevaluated crossover child, only update its config
-                        pspace.mutateParameterConfiguration(rng, newPopulation.get(i).getConfig());
+                        pspace.mutateParameterConfiguration(rng, newPopulation.get(i).getConfig(), mutationStandardDeviationFactor);
                     } else {
                         // this is an already evaluated individual, create a new solver configuration for the mutated version
                         ParameterConfiguration cfg = new ParameterConfiguration(newPopulation.get(i).getConfig());
-                        pspace.mutateParameterConfiguration(rng, cfg);
+                        pspace.mutateParameterConfiguration(rng, cfg, mutationStandardDeviationFactor);
                         if (!cfg.equals(newPopulation.get(i).getConfig())) { // mutation didn't change the parameters, don't create new config
                             int idSolverConfig = api.createSolverConfig(idExperiment, cfg, cfg.toString());
                             Individual ind = new Individual(idSolverConfig, cfg);
@@ -189,7 +245,28 @@ public class GAConfigurator {
                 // replace old population
                 population.set(i, newPopulation.get(i));
             }
+            
+            generation += 1;
+            evaluatePopulation(population, generation);
+        }
+        
+        
+        // print some information about the final population
+        float sum = 0;
+        for (int i = 0; i < populationSize; i++) {
+            sum += population.get(i).getCost();
+            if (globalBest == null || population.get(i).getCost() < globalBest.getCost()) {
+                globalBest = population.get(i);
+            }
+        }
+        generationAverage = sum / populationSize;
+        System.out.println("--------\nno significant improvement in generation average - terminating");
+        System.out.println("Generation " + generation + " - global best: " + globalBest.getConfig() +
+                " with par10 time " + globalBest.getCost() +
+                " - generation avg par10: " + generationAverage);
+        System.out.println("Listing current population:");
+        for (Individual ind: population) {
+            System.out.println(ind.getConfig() + " with par10 time " + ind.getCost());
         }
     }
-
 }
