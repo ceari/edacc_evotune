@@ -31,7 +31,7 @@ class InstanceSeedPair {
  * 
  * Algorithm:
  * initialize & evaluate population
- * while not termination criterion reached do:
+ * while not termination criterion reached maxTerminationCriterionHits times do:
  *    do #populationSize of times:
  *        with a crossover probability select 2 parents, recombine them, add child to new generation
  *        otherwise copy one individual into new generation
@@ -58,11 +58,13 @@ class InstanceSeedPair {
  */
 public class GAConfigurator {
     final int populationSize = 40;
-    final int tournamentSize = 4;
+    final int tournamentSize = 3;
     final float crossoverProbability = 0.8f;
     final float mutationProbability = 0.05f;
     final float mutationStandardDeviationFactor = 0.05f;
+    private final int maxTerminationCriterionHits = 5;
     
+    private int terminationCriterionHits = 0;
     private int idExperiment;
     private API api;
     private List<InstanceSeedPair> parcour;
@@ -87,7 +89,7 @@ public class GAConfigurator {
         api = new API();
         api.connect(hostname, port, database, username, password);
         this.idExperiment = idExperiment;
-        rng = new Random();
+        rng = new edacc.util.MersenneTwister();
         List<Instance> expInstances = api.getExperimentInstances(idExperiment);
         // generate parcour, eventually this should come from the database
         parcour = new ArrayList<InstanceSeedPair>();
@@ -180,7 +182,8 @@ public class GAConfigurator {
         if (avg > (generationAverage * 0.95)) {
             // if the current average is not better than 0.95 times the old
             // average we haven't made significant progress -> terminate
-            return true;
+            terminationCriterionHits++;
+            if (terminationCriterionHits >= maxTerminationCriterionHits) return true;
         }
         return false;
     }
@@ -210,13 +213,19 @@ public class GAConfigurator {
                     " with par10 time " + globalBest.getCost() +
                     " - generation avg par10: " + generationAverage);
             
+            
+            // prepare mating pool (parent selection)
+            List<Individual> matingPool = new ArrayList<Individual>();
+            for (int i = 0; i < populationSize; i++) {
+                matingPool.add(tournamentSelect(population));
+            }
+            
             List<Individual> newPopulation = new ArrayList<Individual>();
-            // recombination
+            // parent recombination
             for (int i = 0; i < populationSize; i++) {
                 if (rng.nextFloat() < crossoverProbability) {
-                    Individual parent1 = tournamentSelect(population);
-                    Individual parent2 = tournamentSelect(population);
-                    while (parent2.getConfig().equals(parent1.getConfig())) parent2 = tournamentSelect(population);
+                    Individual parent1 = matingPool.get(i);
+                    Individual parent2 = matingPool.get((i+1) % populationSize); // wrap around
                     ParameterConfiguration child = pspace.crossover(parent1.getConfig(), parent2.getConfig(), rng);
                     if (api.exists(idExperiment, child) == 0) {
                         // this is actually an individual with a new genome, create a new solver configuration
@@ -229,7 +238,7 @@ public class GAConfigurator {
                     }
                 }
                 else {
-                    newPopulation.add(tournamentSelect(population));
+                    newPopulation.add(matingPool.get(i));
                 }
             }
             
