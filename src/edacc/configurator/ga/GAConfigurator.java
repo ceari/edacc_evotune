@@ -36,7 +36,8 @@ class InstanceSeedPair {
  *        with a crossover probability select 2 parents, recombine them, add child to new generation
  *        otherwise copy one individual into new generation
  *    
- *    with a mutation probability mutate an individual of the new generation
+ *    for each individual of the new population do:
+ *      mutate each gene with a mutation probability
  *    
  *    replace old generation with new generation
  *    evaluate population
@@ -56,8 +57,8 @@ class InstanceSeedPair {
  * The cost of an inidividual is its par10 runtime of all runs.
  */
 public class GAConfigurator {
-    final int populationSize = 30;
-    final int tournamentSize = 3;
+    final int populationSize = 40;
+    final int tournamentSize = 4;
     final float crossoverProbability = 0.8f;
     final float mutationProbability = 0.05f;
     final float mutationStandardDeviationFactor = 0.05f;
