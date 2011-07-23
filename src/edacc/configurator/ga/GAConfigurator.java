@@ -1,5 +1,6 @@
 package edacc.configurator.ga;
 
+import java.io.File;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -8,6 +9,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Scanner;
 
 import edacc.api.API;
 import edacc.model.ExperimentResult;
@@ -57,12 +59,12 @@ class InstanceSeedPair {
  * The cost of an inidividual is its par10 runtime of all runs.
  */
 public class GAConfigurator {
-    final int populationSize = 40;
-    final int tournamentSize = 3;
-    final float crossoverProbability = 0.8f;
-    final float mutationProbability = 0.1f;
-    final float mutationStandardDeviationFactor = 0.1f;
-    private final int maxTerminationCriterionHits = 3;
+    private int populationSize = 40;
+    private int tournamentSize = 3;
+    private float crossoverProbability = 0.8f;
+    private float mutationProbability = 0.1f;
+    private float mutationStandardDeviationFactor = 0.1f;
+    private int maxTerminationCriterionHits = 3;
     
     private int terminationCriterionHits = 0;
     private int idExperiment;
@@ -72,23 +74,73 @@ public class GAConfigurator {
     private ParameterGraph pspace;
     private int jobCPUTimeLimit;
 
+    /** 
+     * Read config file and start the configuration
+     * @param args
+     * @throws Exception
+     */
     public static void main(String... args) throws Exception {
-        if (args.length < 8) {
-            System.out.println("arguments: <hostname> <port> <username> <password> <database> <experiment id> <runs per instance> <job CPU time limit>");
+        if (args.length < 1) {
+            System.out.println("Missing configuration file. Use java -jar GA.jar <config file path>");
             return;
         }
-        GAConfigurator ga = new GAConfigurator(args[0], Integer.valueOf(args[1]), args[2],
-                args[3], args[4], Integer.valueOf(args[5]), Integer.valueOf(args[6]), Integer.valueOf(args[7]));
+        Scanner scanner = new Scanner(new File(args[0]));
+        String hostname = "", user = "", password = "", database = "";
+        int idExperiment = 0;
+        int port = 3306;
+        int populationSize = 42;
+        int tournamentSize = 4;
+        float crossoverProbability = 0.8f;
+        float mutationProbability = 0.05f;
+        float mutationStandardDeviationFactor = 0.05f;
+        int maxTerminationCriterionHits = 4;
+        int jobCPUTimeLimit = 13;
+        int numRunsPerInstance = 2;
+        
+        while (scanner.hasNextLine()) {
+            String line = scanner.nextLine();
+            if (line.trim().startsWith("%")) continue;
+            String[] keyval = line.split("=");
+            String key = keyval[0].trim();
+            String value = keyval[1].trim();
+            if ("host".equals(key)) hostname = value;
+            else if ("user".equals(key)) user = value;
+            else if ("password".equals(key)) password = value;
+            else if ("port".equals(key)) port = Integer.valueOf(value);
+            else if ("database".equals(key)) database = value;
+            else if ("idExperiment".equals(key)) idExperiment = Integer.valueOf(value);
+            else if ("populationSize".equals(key)) populationSize = Integer.valueOf(value);
+            else if ("tournamentSize".equals(key)) tournamentSize = Integer.valueOf(value);
+            else if ("crossoverProbability".equals(key)) crossoverProbability = Float.valueOf(value);
+            else if ("mutationProbability".equals(key)) mutationProbability = Float.valueOf(value);
+            else if ("mutationStandardDeviationFactor".equals(key)) mutationStandardDeviationFactor = Float.valueOf(value);
+            else if ("maxTerminationCriterionHits".equals(key)) maxTerminationCriterionHits = Integer.valueOf(value);
+            else if ("jobCPUTimeLimit".equals(key)) jobCPUTimeLimit = Integer.valueOf(value);
+            else if ("numRunsPerInstance".equals(key)) numRunsPerInstance = Integer.valueOf(value);
+        }
+        scanner.close();
+        GAConfigurator ga = new GAConfigurator(hostname, port, user, password, database,
+                idExperiment, populationSize, tournamentSize, crossoverProbability, mutationProbability,
+                mutationStandardDeviationFactor, maxTerminationCriterionHits, numRunsPerInstance, jobCPUTimeLimit);
         ga.evolve();
         ga.shutdown();
     }
 
     public GAConfigurator(String hostname, int port, String username,
             String password, String database, int idExperiment,
+            int populationSize, int tournamentSize, float crossoverProbability,
+            float mutationProbability, float mutationStandardDeviationFactor,
+            int maxTerminationCriterionHits,
             int numRunsPerInstance, int jobCPUTimeLimit) throws Exception {
         api = new API();
         api.connect(hostname, port, database, username, password);
         this.idExperiment = idExperiment;
+        this.populationSize = populationSize;
+        this.tournamentSize = tournamentSize;
+        this.crossoverProbability = crossoverProbability;
+        this.mutationProbability = mutationProbability;
+        this.mutationStandardDeviationFactor = mutationStandardDeviationFactor;
+        this.maxTerminationCriterionHits = maxTerminationCriterionHits;
         rng = new edacc.util.MersenneTwister();
         List<Instance> expInstances = api.getExperimentInstances(idExperiment);
         // generate parcour, eventually this should come from the database

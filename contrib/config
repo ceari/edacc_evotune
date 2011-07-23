@@ -1,0 +1,15 @@
+% Example configuration file
+host = localhost
+user = edacc
+password = edacc
+database = EDACC
+port = 3306
+idExperiment = 40
+populationSize = 40
+tournamentSize = 3
+crossoverProbability = 0.7
+mutationProbability = 0.1
+mutationStandardDeviationFactor = 0.1
+maxTerminationCriterionHits = 3
+jobCPUTimeLimit = 10
+numRunsPerInstance = 1
