@@ -60,9 +60,9 @@ public class GAConfigurator {
     final int populationSize = 40;
     final int tournamentSize = 3;
     final float crossoverProbability = 0.8f;
-    final float mutationProbability = 0.05f;
-    final float mutationStandardDeviationFactor = 0.05f;
-    private final int maxTerminationCriterionHits = 5;
+    final float mutationProbability = 0.1f;
+    final float mutationStandardDeviationFactor = 0.1f;
+    private final int maxTerminationCriterionHits = 3;
     
     private int terminationCriterionHits = 0;
     private int idExperiment;
@@ -144,13 +144,16 @@ public class GAConfigurator {
             if (!individual_time_sum.containsKey(result.getSolverConfigId()))
                 individual_time_sum.put(result.getSolverConfigId(), 0.0f);
             individual_time_sum.put(result.getSolverConfigId(),
-                        individual_time_sum.get(result.getSolverConfigId()) + result.getResultTime() * (result.getResultCode().getResultCode() > 0 ? 1 : 10));
+                        individual_time_sum.get(result.getSolverConfigId()) +
+                        result.getResultTime()); // * (result.getResultCode().getResultCode() > 0 ? 1 : 10));
         }
         
         for (Individual ind: population) {
             if (ind.getCost() == null) {
                 // par10 result time is the cost
-                ind.setCost(individual_time_sum.get(ind.getIdSolverConfiguration()) / parcour.size());
+                float cost = individual_time_sum.get(ind.getIdSolverConfiguration()) / parcour.size();
+                ind.setCost(cost);
+                api.updateSolverConfigurationCost(ind.getIdSolverConfiguration(), cost, API.COST_FUNCTIONS.AVERAGE);
             }
         }
     }
