@@ -6,14 +6,24 @@ public class Individual implements Comparable<Individual> {
 	private ParameterConfiguration config;
 	private int idSolverConfiguration;
 	private Float cost;
+	private String name;
 	
-	public Individual(int idSolverConfiguration, ParameterConfiguration config) {
+	public Individual(int idSolverConfiguration, ParameterConfiguration config, String name) {
 		this.idSolverConfiguration = idSolverConfiguration;
 		this.config = config;
 		this.cost = null;
+		this.name = name;
 	}
 
-	public final Float getCost() {
+	public final String getName() {
+        return name;
+    }
+
+    public final void setName(String name) {
+        this.name = name;
+    }
+
+    public final Float getCost() {
 		return cost;
 	}
 
@@ -28,8 +38,6 @@ public class Individual implements Comparable<Individual> {
 	public final int getIdSolverConfiguration() {
 		return idSolverConfiguration;
 	}
-	
-	
 
     @Override
     public int compareTo(Individual o) {

@@ -56,7 +56,7 @@ class InstanceSeedPair {
  * ----
  * 
  * Evaluation of each individual is done on all instances of the EDACC experiment.
- * The cost of an inidividual is its par10 runtime of all runs.
+ * The cost of an inidividual is its average runtime of all runs.
  */
 public class GAConfigurator {
     private int populationSize = 40;
@@ -151,6 +151,7 @@ public class GAConfigurator {
             }
         }
         pspace = api.loadParameterGraphFromDB(idExperiment);
+        if (pspace == null) throw new Exception("No parameter graph found.");
         this.jobCPUTimeLimit = jobCPUTimeLimit;
     }
 
@@ -162,8 +163,9 @@ public class GAConfigurator {
         List<Individual> population = new ArrayList<Individual>();
         for (int i = 0; i < size; i++) {
             ParameterConfiguration cfg = pspace.getRandomConfiguration(rng);
-            int idSolverConfig = api.createSolverConfig(idExperiment, cfg, cfg.toString());
-            population.add(new Individual(idSolverConfig, cfg));
+            String name = "Gen 1 " + api.getCanonicalName(idExperiment, cfg);
+            int idSolverConfig = api.createSolverConfig(idExperiment, cfg, name);
+            population.add(new Individual(idSolverConfig, cfg, name));
         }
         return population;
     }
@@ -202,7 +204,7 @@ public class GAConfigurator {
         
         for (Individual ind: population) {
             if (ind.getCost() == null) {
-                // par10 result time is the cost
+                // average result time is the cost
                 float cost = individual_time_sum.get(ind.getIdSolverConfiguration()) / parcour.size();
                 ind.setCost(cost);
                 api.updateSolverConfigurationCost(ind.getIdSolverConfiguration(), cost, API.COST_FUNCTIONS.AVERAGE);
@@ -264,9 +266,9 @@ public class GAConfigurator {
             generationAverage = sum / populationSize;
             
             // print some information
-            System.out.println("Generation " + generation + " - global best: " + globalBest.getConfig() +
-                    " with par10 time " + globalBest.getCost() +
-                    " - generation avg par10: " + generationAverage);
+            System.out.println("Generation " + generation + " - global best: " + globalBest.getName() +
+                    " with average time " + globalBest.getCost() +
+                    " - generation avg: " + generationAverage);
             
             
             // prepare mating pool (parent selection)
@@ -284,8 +286,9 @@ public class GAConfigurator {
                     ParameterConfiguration child = pspace.crossover(parent1.getConfig(), parent2.getConfig(), rng);
                     if (api.exists(idExperiment, child) == 0) {
                         // this is actually an individual with a new genome, create a new solver configuration
-                        int idSolverConfig = api.createSolverConfig(idExperiment, child, child.toString());
-                        newPopulation.add(new Individual(idSolverConfig, child));
+                        String name = "Gen " + (generation + 1) + " " + api.getCanonicalName(idExperiment, child);
+                        int idSolverConfig = api.createSolverConfig(idExperiment, child, name);
+                        newPopulation.add(new Individual(idSolverConfig, child, name));
                     }
                     else {
                         // parents had the same parameters, copy over one of them
@@ -306,8 +309,9 @@ public class GAConfigurator {
                     ParameterConfiguration cfg = new ParameterConfiguration(newPopulation.get(i).getConfig());
                     pspace.mutateParameterConfiguration(rng, cfg, mutationStandardDeviationFactor, mutationProbability);
                     if (!cfg.equals(newPopulation.get(i).getConfig())) { // mutation didn't change the parameters, don't create new config
-                        int idSolverConfig = api.createSolverConfig(idExperiment, cfg, cfg.toString());
-                        Individual ind = new Individual(idSolverConfig, cfg);
+                        String name = "Gen " + (generation + 1) + " " + api.getCanonicalName(idExperiment, cfg);
+                        int idSolverConfig = api.createSolverConfig(idExperiment, cfg, name);
+                        Individual ind = new Individual(idSolverConfig, cfg, name);
                         newPopulation.set(i, ind);
                     }
                 }
@@ -330,12 +334,12 @@ public class GAConfigurator {
         }
         generationAverage = sum / populationSize;
         System.out.println("--------\nno significant improvement in generation average - terminating");
-        System.out.println("Generation " + generation + " - global best: " + globalBest.getConfig() +
-                " with par10 time " + globalBest.getCost() +
-                " - generation avg par10: " + generationAverage);
+        System.out.println("Generation " + generation + " - global best: " + globalBest.getName() +
+                " with average time " + globalBest.getCost() +
+                " - generation avg: " + generationAverage);
         System.out.println("Listing current population:");
         for (Individual ind: population) {
-            System.out.println(ind.getConfig() + " with par10 time " + ind.getCost());
+            System.out.println(ind.getName() + " with average time " + ind.getCost());
         }
     }
 }
