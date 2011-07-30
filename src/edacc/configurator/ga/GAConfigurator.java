@@ -163,9 +163,7 @@ public class GAConfigurator {
         List<Individual> population = new ArrayList<Individual>();
         for (int i = 0; i < size; i++) {
             ParameterConfiguration cfg = pspace.getRandomConfiguration(rng);
-            String name = "Gen 1 " + api.getCanonicalName(idExperiment, cfg);
-            int idSolverConfig = api.createSolverConfig(idExperiment, cfg, name);
-            population.add(new Individual(idSolverConfig, cfg, name));
+            population.add(new Individual(cfg));
         }
         return population;
     }
@@ -173,7 +171,19 @@ public class GAConfigurator {
     protected void evaluatePopulation(List<Individual> population, int generation) throws Exception {
         List<Integer> jobs = new ArrayList<Integer>();
         for (Individual ind : population) {
-            if (ind.getCost() == null) {
+            if (ind.getIdSolverConfiguration() != 0) continue;
+            // check if an equal solver config already exists and use its results
+            // the cost of this existing config has to be set at the end because it could
+            // be that two equal configs were created but not evaluated
+            int idSolverConfig = api.exists(idExperiment, ind.getConfig());
+            if (idSolverConfig != 0) {
+                ind.setIdSolverConfiguration(idSolverConfig);
+                ind.setName(api.getSolverConfigName(idSolverConfig));
+            } else { // otherwise create a new solver configuration and launch jobs
+                String name = "Gen " + generation + " " + api.getCanonicalName(idExperiment, ind.getConfig());
+                ind.setIdSolverConfiguration(api.createSolverConfig(idExperiment, ind.getConfig(), name));
+                ind.setCost(null);
+                ind.setName(name);
                 for (int i = 0; i < parcour.size(); i++) {
                     jobs.add(api.launchJob(idExperiment, ind.getIdSolverConfiguration(),
                             parcour.get(i).idInstance, parcour.get(i).seed, jobCPUTimeLimit));
@@ -202,12 +212,19 @@ public class GAConfigurator {
                         result.getResultTime()); // * (result.getResultCode().getResultCode() > 0 ? 1 : 10));
         }
         
+        for (Integer idSolverConfig: individual_time_sum.keySet()) {
+            for (Individual ind: population) {
+                if (ind.getIdSolverConfiguration() == idSolverConfig) {
+                    float cost = individual_time_sum.get(ind.getIdSolverConfiguration()) / parcour.size();
+                    ind.setCost(cost);
+                    api.updateSolverConfigurationCost(ind.getIdSolverConfiguration(), cost, API.COST_FUNCTIONS.AVERAGE);
+                }
+            }
+        }
+        
         for (Individual ind: population) {
             if (ind.getCost() == null) {
-                // average result time is the cost
-                float cost = individual_time_sum.get(ind.getIdSolverConfiguration()) / parcour.size();
-                ind.setCost(cost);
-                api.updateSolverConfigurationCost(ind.getIdSolverConfiguration(), cost, API.COST_FUNCTIONS.AVERAGE);
+                ind.setCost(api.getSolverConfigurationCost(ind.getIdSolverConfiguration()));
             }
         }
     }
@@ -259,7 +276,7 @@ public class GAConfigurator {
             for (int i = 0; i < populationSize; i++) {
                 sum += population.get(i).getCost();
                 if (globalBest == null || population.get(i).getCost() < globalBest.getCost()) {
-                    globalBest = population.get(i);
+                    globalBest = new Individual(population.get(i));
                 }
             }
             // update generationAverage
@@ -284,16 +301,7 @@ public class GAConfigurator {
                     Individual parent1 = matingPool.get(i);
                     Individual parent2 = matingPool.get((i+1) % populationSize); // wrap around
                     ParameterConfiguration child = pspace.crossover(parent1.getConfig(), parent2.getConfig(), rng);
-                    if (api.exists(idExperiment, child) == 0) {
-                        // this is actually an individual with a new genome, create a new solver configuration
-                        String name = "Gen " + (generation + 1) + " " + api.getCanonicalName(idExperiment, child);
-                        int idSolverConfig = api.createSolverConfig(idExperiment, child, name);
-                        newPopulation.add(new Individual(idSolverConfig, child, name));
-                    }
-                    else {
-                        // parents had the same parameters, copy over one of them
-                        newPopulation.add(parent1);
-                    }
+                    newPopulation.add(new Individual(child));
                 }
                 else {
                     newPopulation.add(matingPool.get(i));
@@ -302,19 +310,7 @@ public class GAConfigurator {
             
             // mutation
             for (int i = 0; i < populationSize; i++) {
-                if (newPopulation.get(i).getCost() == null) { // this is an unevaluated crossover child, only update its config
-                    pspace.mutateParameterConfiguration(rng, newPopulation.get(i).getConfig(), mutationStandardDeviationFactor, mutationProbability);
-                } else {
-                    // this is an already evaluated individual, create a new solver configuration for the mutated version
-                    ParameterConfiguration cfg = new ParameterConfiguration(newPopulation.get(i).getConfig());
-                    pspace.mutateParameterConfiguration(rng, cfg, mutationStandardDeviationFactor, mutationProbability);
-                    if (!cfg.equals(newPopulation.get(i).getConfig())) { // mutation didn't change the parameters, don't create new config
-                        String name = "Gen " + (generation + 1) + " " + api.getCanonicalName(idExperiment, cfg);
-                        int idSolverConfig = api.createSolverConfig(idExperiment, cfg, name);
-                        Individual ind = new Individual(idSolverConfig, cfg, name);
-                        newPopulation.set(i, ind);
-                    }
-                }
+                pspace.mutateParameterConfiguration(rng, newPopulation.get(i).getConfig(), mutationStandardDeviationFactor, mutationProbability);
                 // replace old population
                 population.set(i, newPopulation.get(i));
             }
