@@ -207,17 +207,22 @@ public class GAConfigurator {
         for (ExperimentResult result: results.values()) {
             if (!individual_time_sum.containsKey(result.getSolverConfigId()))
                 individual_time_sum.put(result.getSolverConfigId(), 0.0f);
+            boolean correct = String.valueOf(result.getResultCode().getResultCode()).startsWith("1");
             individual_time_sum.put(result.getSolverConfigId(),
                         individual_time_sum.get(result.getSolverConfigId()) +
-                        result.getResultTime()); // * (result.getResultCode().getResultCode() > 0 ? 1 : 10));
+                        (correct ? result.getResultTime() : result.getCPUTimeLimit()));
         }
         
         for (Integer idSolverConfig: individual_time_sum.keySet()) {
+            float cost = individual_time_sum.get(idSolverConfig) / parcour.size();
+            api.updateSolverConfigurationCost(idSolverConfig, cost, API.COST_FUNCTIONS.AVERAGE);
+            
             for (Individual ind: population) {
                 if (ind.getIdSolverConfiguration() == idSolverConfig) {
-                    float cost = individual_time_sum.get(ind.getIdSolverConfiguration()) / parcour.size();
                     ind.setCost(cost);
-                    api.updateSolverConfigurationCost(ind.getIdSolverConfiguration(), cost, API.COST_FUNCTIONS.AVERAGE);
+                    if (ind.getCost() != null && ind.getCost() < 0.00000001f) {
+                        System.out.println("DEBUG assigned cost 0.0 to " + ind.getName() + " " + ind.getIdSolverConfiguration());
+                    }
                 }
             }
         }
@@ -225,6 +230,9 @@ public class GAConfigurator {
         for (Individual ind: population) {
             if (ind.getCost() == null) {
                 ind.setCost(api.getSolverConfigurationCost(ind.getIdSolverConfiguration()));
+                if (ind.getCost() != null && ind.getCost() < 0.00000001f) {
+                    System.out.println("DEBUG assigned cost 0.0 to " + ind.getName() + " " + ind.getIdSolverConfiguration());
+                }
             }
         }
     }
