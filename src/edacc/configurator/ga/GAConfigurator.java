@@ -12,6 +12,7 @@ import java.util.Random;
 import java.util.Scanner;
 
 import edacc.api.API;
+import edacc.api.APIImpl;
 import edacc.model.ExperimentResult;
 import edacc.model.Instance;
 import edacc.parameterspace.ParameterConfiguration;
@@ -132,7 +133,7 @@ public class GAConfigurator {
             float mutationProbability, float mutationStandardDeviationFactor,
             int maxTerminationCriterionHits,
             int numRunsPerInstance, int jobCPUTimeLimit) throws Exception {
-        api = new API();
+        api = new APIImpl();
         api.connect(hostname, port, database, username, password);
         this.idExperiment = idExperiment;
         this.populationSize = populationSize;
