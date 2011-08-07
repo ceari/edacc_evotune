@@ -13,3 +13,6 @@ mutationStandardDeviationFactor = 0.1
 maxTerminationCriterionHits = 3
 jobCPUTimeLimit = 10
 numRunsPerInstance = 1
+useExistingConfigs = 1
+seed = 123456789
+use2PointCrossover = 1

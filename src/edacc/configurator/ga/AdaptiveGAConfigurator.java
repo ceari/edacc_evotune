@@ -87,6 +87,7 @@ public class AdaptiveGAConfigurator {
         int jobCPUTimeLimit = 13;
         int numRunsPerInstance = 2;
         boolean useExistingConfigs = false;
+        long seed = System.currentTimeMillis();
         
         while (scanner.hasNextLine()) {
             String line = scanner.nextLine();
@@ -109,12 +110,13 @@ public class AdaptiveGAConfigurator {
             else if ("jobCPUTimeLimit".equals(key)) jobCPUTimeLimit = Integer.valueOf(value);
             else if ("numRunsPerInstance".equals(key)) numRunsPerInstance = Integer.valueOf(value);
             else if ("useExistingConfigs".equals(key)) useExistingConfigs = Integer.valueOf(value) == 1;
+            else if ("seed".equals(key)) seed = Long.valueOf(value);
         }
         scanner.close();
         AdaptiveGAConfigurator ga = new AdaptiveGAConfigurator(hostname, port, user, password, database,
                 idExperiment, populationSize, tournamentSize, crossoverProbability, mutationProbability,
                 mutationStandardDeviationFactor, maxTerminationCriterionHits, numRunsPerInstance, jobCPUTimeLimit,
-                useExistingConfigs);
+                useExistingConfigs, seed);
         ga.evolve();
         ga.shutdown();
     }
@@ -124,7 +126,7 @@ public class AdaptiveGAConfigurator {
             int populationSize, int tournamentSize, float crossoverProbability,
             float mutationProbability, float mutationStandardDeviationFactor,
             int maxTerminationCriterionHits,
-            int numRunsPerInstance, int jobCPUTimeLimit, boolean useExistingConfigs) throws Exception {
+            int numRunsPerInstance, int jobCPUTimeLimit, boolean useExistingConfigs, long seed) throws Exception {
         api = new APIImpl();
         api.connect(hostname, port, database, username, password);
         this.idExperiment = idExperiment;
@@ -135,7 +137,7 @@ public class AdaptiveGAConfigurator {
         this.mutationStandardDeviationFactor = mutationStandardDeviationFactor;
         this.maxTerminationCriterionHits = maxTerminationCriterionHits;
         this.useExistingConfigs = useExistingConfigs;
-        rng = new edacc.util.MersenneTwister();
+        rng = new edacc.util.MersenneTwister(seed);
         List<Instance> expInstances = api.getExperimentInstances(idExperiment);
         // generate parcour, eventually this should come from the database
         parcour = new ArrayList<InstanceSeedPair>();
@@ -195,7 +197,7 @@ public class AdaptiveGAConfigurator {
                 ind.setIdSolverConfiguration(api.createSolverConfig(idExperiment, ind.getConfig(), name));
                 ind.setCost(null);
                 ind.setName(name);
-                for (int i = 0; i < parcour.size(); i++) {
+                for (int i = 0; i < parcour.size() ; i++) {
                     jobs.add(api.launchJob(idExperiment, ind.getIdSolverConfiguration(),
                             parcour.get(i).idInstance, parcour.get(i).seed, jobCPUTimeLimit));
                 }
@@ -292,17 +294,21 @@ public class AdaptiveGAConfigurator {
         while (!terminationCriterion(generationAverage, population)) {
             // keep track of global best individual
             float sum = 0;
+            Float generationBest = null;
             for (int i = 0; i < populationSize; i++) {
                 sum += population.get(i).getCost();
                 if (globalBest == null || population.get(i).getCost() < globalBest.getCost()) {
                     globalBest = new Individual(population.get(i));
+                }
+                if (generationBest == null || population.get(i).getCost() < generationBest) {
+                    generationBest = population.get(i).getCost();
                 }
             }
             // update generationAverage
             generationAverage = sum / populationSize;
             
             // print some information
-            System.out.println("Generation " + generation + " - global best: " + globalBest.getName() +
+            System.out.println("---------\nGeneration " + generation + " - global best: " + globalBest.getName() +
                     " with average time " + globalBest.getCost() +
                     " - generation avg: " + generationAverage);
             
@@ -316,20 +322,37 @@ public class AdaptiveGAConfigurator {
             List<Individual> newPopulation = new ArrayList<Individual>();
             // parent recombination
             for (int i = 0; i < populationSize; i++) {
-                if (rng.nextFloat() < crossoverProbability) {
-                    Individual parent1 = matingPool.get(i);
-                    Individual parent2 = matingPool.get((i+1) % populationSize); // wrap around
+                Individual parent1 = matingPool.get(i);
+                Individual parent2 = matingPool.get((i+1) % populationSize); // wrap around
+                // adapt crossover probability for each recombination
+                // see "Adaptive Probabilities of Crossover and Mutation in Genetic Algorithms" by Srinivas and Patnaik, 1994
+                final float k1 = 1.0f, k3 = 1.0f;
+                float f_prime = Math.max(1.0f / parent1.getCost(), 1.0f / parent2.getCost()); // invert cost to gain fitness
+                float f_avg = 1.0f / generationAverage;
+                float f_max = 1.0f / generationBest;
+                float p_c = f_prime >= f_avg ? k1 * (f_max - f_prime) / (f_max - f_avg) : k3;
+                if (rng.nextFloat() < p_c) {
                     ParameterConfiguration child = pspace.crossover(parent1.getConfig(), parent2.getConfig(), rng);
                     newPopulation.add(new Individual(child));
                 }
                 else {
-                    newPopulation.add(matingPool.get(i));
+                    newPopulation.add(parent1);
                 }
             }
             
             // mutation
             for (int i = 0; i < populationSize; i++) {
-                pspace.mutateParameterConfiguration(rng, newPopulation.get(i).getConfig(), mutationStandardDeviationFactor, mutationProbability);
+                final float k2 = 0.2f, k4 = 0.2f;
+                float f;
+                if (newPopulation.get(i).getCost() == null) {
+                    f = 1.0f / population.get(i).getCost(); // use parent cost as estimation of crossover cost
+                } else {
+                    f = 1.0f / newPopulation.get(i).getCost(); // invert cost to gain fitness
+                }
+                float f_avg = 1.0f / generationAverage;
+                float f_max = 1.0f / generationBest;
+                float p_m = f >= f_avg ? k2 * (f_max - f) / (f_max - f_avg) : k4;
+                pspace.mutateParameterConfiguration(rng, newPopulation.get(i).getConfig(), mutationStandardDeviationFactor, p_m);
                 // replace old population
                 population.set(i, newPopulation.get(i));
             }
@@ -348,13 +371,9 @@ public class AdaptiveGAConfigurator {
             }
         }
         generationAverage = sum / populationSize;
-        System.out.println("--------\nno significant improvement in generation average - terminating");
+        System.out.println("---------\nno significant improvement in generation average - terminating");
         System.out.println("Generation " + generation + " - global best: " + globalBest.getName() +
                 " with average time " + globalBest.getCost() +
-                " - generation avg: " + generationAverage);
-        System.out.println("Listing current population:");
-        for (Individual ind: population) {
-            System.out.println(ind.getName() + " with average time " + ind.getCost());
-        }
+                " - generation avg: " + generationAverage + "----------------------\n----------------------");
     }
 }

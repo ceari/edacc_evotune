@@ -3,7 +3,6 @@ package edacc.configurator.ga;
 import java.io.File;
 import java.math.BigInteger;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -17,6 +16,7 @@ import edacc.model.ExperimentResult;
 import edacc.model.Instance;
 import edacc.parameterspace.ParameterConfiguration;
 import edacc.parameterspace.graph.ParameterGraph;
+import edacc.util.Pair;
 
 /** Parcour entries */
 class InstanceSeedPair {
@@ -74,6 +74,7 @@ public class GAConfigurator {
     private Random rng;
     private ParameterGraph pspace;
     private int jobCPUTimeLimit;
+    private boolean use2PointCrossover = false;
 
     /** 
      * Read config file and start the configuration
@@ -97,6 +98,8 @@ public class GAConfigurator {
         int maxTerminationCriterionHits = 4;
         int jobCPUTimeLimit = 13;
         int numRunsPerInstance = 2;
+        long seed = System.currentTimeMillis();
+        boolean use2PointCrossover = false;
         
         while (scanner.hasNextLine()) {
             String line = scanner.nextLine();
@@ -118,11 +121,14 @@ public class GAConfigurator {
             else if ("maxTerminationCriterionHits".equals(key)) maxTerminationCriterionHits = Integer.valueOf(value);
             else if ("jobCPUTimeLimit".equals(key)) jobCPUTimeLimit = Integer.valueOf(value);
             else if ("numRunsPerInstance".equals(key)) numRunsPerInstance = Integer.valueOf(value);
+            else if ("seed".equals(key)) seed = Long.valueOf(value);
+            else if ("use2PointCrossover".equals(key)) use2PointCrossover = Integer.valueOf(value) == 1;
         }
         scanner.close();
         GAConfigurator ga = new GAConfigurator(hostname, port, user, password, database,
                 idExperiment, populationSize, tournamentSize, crossoverProbability, mutationProbability,
-                mutationStandardDeviationFactor, maxTerminationCriterionHits, numRunsPerInstance, jobCPUTimeLimit);
+                mutationStandardDeviationFactor, maxTerminationCriterionHits, numRunsPerInstance,
+                jobCPUTimeLimit, seed, use2PointCrossover);
         ga.evolve();
         ga.shutdown();
     }
@@ -132,7 +138,8 @@ public class GAConfigurator {
             int populationSize, int tournamentSize, float crossoverProbability,
             float mutationProbability, float mutationStandardDeviationFactor,
             int maxTerminationCriterionHits,
-            int numRunsPerInstance, int jobCPUTimeLimit) throws Exception {
+            int numRunsPerInstance, int jobCPUTimeLimit, long seed, boolean use2PointCrossover) throws Exception {
+        if (populationSize % 2 != 0 || populationSize <= 0) throw new IllegalArgumentException("Population size has to be a multiple of 2 and >= 2.");
         api = new APIImpl();
         api.connect(hostname, port, database, username, password);
         this.idExperiment = idExperiment;
@@ -142,7 +149,7 @@ public class GAConfigurator {
         this.mutationProbability = mutationProbability;
         this.mutationStandardDeviationFactor = mutationStandardDeviationFactor;
         this.maxTerminationCriterionHits = maxTerminationCriterionHits;
-        rng = new edacc.util.MersenneTwister();
+        rng = new edacc.util.MersenneTwister(seed);
         List<Instance> expInstances = api.getExperimentInstances(idExperiment);
         // generate parcour, eventually this should come from the database
         parcour = new ArrayList<InstanceSeedPair>();
@@ -292,7 +299,7 @@ public class GAConfigurator {
             generationAverage = sum / populationSize;
             
             // print some information
-            System.out.println("Generation " + generation + " - global best: " + globalBest.getName() +
+            System.out.println("---------\nGeneration " + generation + " - global best: " + globalBest.getName() +
                     " with average time " + globalBest.getCost() +
                     " - generation avg: " + generationAverage);
             
@@ -305,15 +312,22 @@ public class GAConfigurator {
             
             List<Individual> newPopulation = new ArrayList<Individual>();
             // parent recombination
-            for (int i = 0; i < populationSize; i++) {
+            for (int i = 0; i < populationSize; i += 2) {
                 if (rng.nextFloat() < crossoverProbability) {
                     Individual parent1 = matingPool.get(i);
                     Individual parent2 = matingPool.get((i+1) % populationSize); // wrap around
-                    ParameterConfiguration child = pspace.crossover(parent1.getConfig(), parent2.getConfig(), rng);
-                    newPopulation.add(new Individual(child));
+                    if (use2PointCrossover) {
+                        Pair<ParameterConfiguration, ParameterConfiguration> children = pspace.crossover2Point(parent1.getConfig(), parent2.getConfig(), rng);
+                        newPopulation.add(new Individual(children.getFirst()));
+                        newPopulation.add(new Individual(children.getSecond()));
+                    } else {
+                        newPopulation.add(new Individual(pspace.crossover(parent1.getConfig(), parent2.getConfig(), rng)));
+                        newPopulation.add(new Individual(pspace.crossover(parent1.getConfig(), parent2.getConfig(), rng)));
+                    }
                 }
                 else {
                     newPopulation.add(matingPool.get(i));
+                    newPopulation.add(matingPool.get((i+1) % populationSize));
                 }
             }
             
@@ -338,13 +352,10 @@ public class GAConfigurator {
             }
         }
         generationAverage = sum / populationSize;
-        System.out.println("--------\nno significant improvement in generation average - terminating");
+        System.out.println("---------\nno significant improvement in generation average - terminating");
         System.out.println("Generation " + generation + " - global best: " + globalBest.getName() +
                 " with average time " + globalBest.getCost() +
-                " - generation avg: " + generationAverage);
-        System.out.println("Listing current population:");
-        for (Individual ind: population) {
-            System.out.println(ind.getName() + " with average time " + ind.getCost());
-        }
+                " - generation avg: " + generationAverage + "----------------------\n----------------------");
+
     }
 }
