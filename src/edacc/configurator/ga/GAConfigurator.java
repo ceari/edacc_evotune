@@ -321,8 +321,9 @@ public class GAConfigurator {
                         newPopulation.add(new Individual(children.getFirst()));
                         newPopulation.add(new Individual(children.getSecond()));
                     } else {
-                        newPopulation.add(new Individual(pspace.crossover(parent1.getConfig(), parent2.getConfig(), rng)));
-                        newPopulation.add(new Individual(pspace.crossover(parent1.getConfig(), parent2.getConfig(), rng)));
+                        Pair<ParameterConfiguration, ParameterConfiguration> cross = pspace.crossover(parent1.getConfig(), parent2.getConfig(), rng);
+                        newPopulation.add(new Individual(cross.getFirst()));
+                        newPopulation.add(new Individual(cross.getSecond()));
                     }
                 }
                 else {

@@ -332,7 +332,7 @@ public class AdaptiveGAConfigurator {
                 float f_max = 1.0f / generationBest;
                 float p_c = f_prime >= f_avg ? k1 * (f_max - f_prime) / (f_max - f_avg) : k3;
                 if (rng.nextFloat() < p_c) {
-                    ParameterConfiguration child = pspace.crossover(parent1.getConfig(), parent2.getConfig(), rng);
+                    ParameterConfiguration child = pspace.crossover(parent1.getConfig(), parent2.getConfig(), rng).getFirst();
                     newPopulation.add(new Individual(child));
                 }
                 else {
