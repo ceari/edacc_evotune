@@ -66,6 +66,7 @@ public class GAConfigurator {
     private float mutationProbability = 0.1f;
     private float mutationStandardDeviationFactor = 0.1f;
     private int maxTerminationCriterionHits = 3;
+    private boolean useExistingConfigs = false;
     
     private int terminationCriterionHits = 0;
     private int idExperiment;
@@ -100,6 +101,7 @@ public class GAConfigurator {
         int numRunsPerInstance = 2;
         long seed = System.currentTimeMillis();
         boolean use2PointCrossover = false;
+        boolean useExistingConfigs = false;
         
         while (scanner.hasNextLine()) {
             String line = scanner.nextLine();
@@ -122,13 +124,14 @@ public class GAConfigurator {
             else if ("jobCPUTimeLimit".equals(key)) jobCPUTimeLimit = Integer.valueOf(value);
             else if ("numRunsPerInstance".equals(key)) numRunsPerInstance = Integer.valueOf(value);
             else if ("seed".equals(key)) seed = Long.valueOf(value);
+            else if ("useExistingConfigs".equals(key)) useExistingConfigs = Integer.valueOf(value) == 1;
             else if ("use2PointCrossover".equals(key)) use2PointCrossover = Integer.valueOf(value) == 1;
         }
         scanner.close();
         GAConfigurator ga = new GAConfigurator(hostname, port, user, password, database,
                 idExperiment, populationSize, tournamentSize, crossoverProbability, mutationProbability,
                 mutationStandardDeviationFactor, maxTerminationCriterionHits, numRunsPerInstance,
-                jobCPUTimeLimit, seed, use2PointCrossover);
+                jobCPUTimeLimit, seed, use2PointCrossover, useExistingConfigs);
         ga.evolve();
         ga.shutdown();
     }
@@ -138,7 +141,8 @@ public class GAConfigurator {
             int populationSize, int tournamentSize, float crossoverProbability,
             float mutationProbability, float mutationStandardDeviationFactor,
             int maxTerminationCriterionHits,
-            int numRunsPerInstance, int jobCPUTimeLimit, long seed, boolean use2PointCrossover) throws Exception {
+            int numRunsPerInstance, int jobCPUTimeLimit, long seed, boolean use2PointCrossover,
+            boolean useExistingConfigs) throws Exception {
         if (populationSize % 2 != 0 || populationSize <= 0) throw new IllegalArgumentException("Population size has to be a multiple of 2 and >= 2.");
         api = new APIImpl();
         api.connect(hostname, port, database, username, password);
@@ -149,6 +153,7 @@ public class GAConfigurator {
         this.mutationProbability = mutationProbability;
         this.mutationStandardDeviationFactor = mutationStandardDeviationFactor;
         this.maxTerminationCriterionHits = maxTerminationCriterionHits;
+        this.useExistingConfigs = useExistingConfigs;
         rng = new edacc.util.MersenneTwister(seed);
         List<Instance> expInstances = api.getExperimentInstances(idExperiment);
         // generate parcour, eventually this should come from the database
@@ -169,9 +174,26 @@ public class GAConfigurator {
 
     protected List<Individual> initializePopulation(int size) throws Exception {
         List<Individual> population = new ArrayList<Individual>();
-        for (int i = 0; i < size; i++) {
-            ParameterConfiguration cfg = pspace.getRandomConfiguration(rng);
-            population.add(new Individual(cfg));
+        if (useExistingConfigs) {
+            List<Integer> bestConfigs = api.getBestConfigurations(idExperiment, API.COST_FUNCTIONS.AVERAGE, size);
+            for (Integer idSolverConfig: bestConfigs) {
+                Individual ind = new Individual(api.getParameterConfiguration(idExperiment, idSolverConfig));
+                ind.setCost(api.getSolverConfigurationCost(idSolverConfig));
+                ind.setIdSolverConfiguration(idSolverConfig);
+                ind.setName(api.getSolverConfigName(idSolverConfig));
+                System.out.println("using existing config " + ind.getConfig() + " with cost " + ind.getCost());
+                population.add(ind);
+            }
+            for (int i = 0; i < size - bestConfigs.size(); i++) {
+                ParameterConfiguration cfg = pspace.getRandomConfiguration(rng);
+                population.add(new Individual(cfg));
+            }
+        }
+        else {
+            for (int i = 0; i < size; i++) {
+                ParameterConfiguration cfg = pspace.getRandomConfiguration(rng);
+                population.add(new Individual(cfg));
+            }
         }
         return population;
     }
