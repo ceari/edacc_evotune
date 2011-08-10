@@ -71,7 +71,7 @@ public class GAConfigurator {
     private int terminationCriterionHits = 0;
     private int idExperiment;
     private API api;
-    private List<InstanceSeedPair> parcour;
+    //private List<InstanceSeedPair> parcour;
     private Random rng;
     private ParameterGraph pspace;
     private int jobCPUTimeLimit;
@@ -157,12 +157,12 @@ public class GAConfigurator {
         rng = new edacc.util.MersenneTwister(seed);
         List<Instance> expInstances = api.getExperimentInstances(idExperiment);
         // generate parcour, eventually this should come from the database
-        parcour = new ArrayList<InstanceSeedPair>();
+        /*parcour = new ArrayList<InstanceSeedPair>();
         for (int i = 0; i < numRunsPerInstance; i++) {
             for (Instance instance : expInstances) {
                 parcour.add(new InstanceSeedPair(instance.getId(),BigInteger.valueOf(rng.nextInt(2147483647))));
             }
-        }
+        }*/
         pspace = api.loadParameterGraphFromDB(idExperiment);
         if (pspace == null) throw new Exception("No parameter graph found.");
         this.jobCPUTimeLimit = jobCPUTimeLimit;
@@ -214,10 +214,9 @@ public class GAConfigurator {
                 ind.setIdSolverConfiguration(api.createSolverConfig(idExperiment, ind.getConfig(), name));
                 ind.setCost(null);
                 ind.setName(name);
-                for (int i = 0; i < parcour.size(); i++) {
-                    jobs.add(api.launchJob(idExperiment, ind.getIdSolverConfiguration(),
-                            parcour.get(i).idInstance, parcour.get(i).seed, jobCPUTimeLimit));
-                }
+                int[] cpuTimeLimits = new int[api.getCourseLength(idExperiment)];
+                for (int i = 0; i < api.getCourseLength(idExperiment); i++) cpuTimeLimits[i] = jobCPUTimeLimit;
+                jobs.addAll(api.launchJob(idExperiment, ind.getIdSolverConfiguration(), cpuTimeLimits, api.getCourseLength(idExperiment)));
             }
         }
         
@@ -244,7 +243,7 @@ public class GAConfigurator {
         }
         
         for (Integer idSolverConfig: individual_time_sum.keySet()) {
-            float cost = individual_time_sum.get(idSolverConfig) / parcour.size();
+            float cost = individual_time_sum.get(idSolverConfig) / api.getCourseLength(idExperiment);
             api.updateSolverConfigurationCost(idSolverConfig, cost, API.COST_FUNCTIONS.AVERAGE);
             
             for (Individual ind: population) {
