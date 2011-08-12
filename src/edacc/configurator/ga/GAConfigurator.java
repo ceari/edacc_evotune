@@ -200,6 +200,8 @@ public class GAConfigurator {
 
     protected void evaluatePopulation(List<Individual> population, int generation) throws Exception {
         List<Integer> jobs = new ArrayList<Integer>();
+        int courseLength = api.getCourseLength(idExperiment);
+        int numJobs = Math.min(generation * courseLength / 10, courseLength);
         for (Individual ind : population) {
             if (ind.getIdSolverConfiguration() != 0) continue;
             // check if an equal solver config already exists and use its results
@@ -214,9 +216,9 @@ public class GAConfigurator {
                 ind.setIdSolverConfiguration(api.createSolverConfig(idExperiment, ind.getConfig(), name));
                 ind.setCost(null);
                 ind.setName(name);
-                int[] cpuTimeLimits = new int[api.getCourseLength(idExperiment)];
-                for (int i = 0; i < api.getCourseLength(idExperiment); i++) cpuTimeLimits[i] = jobCPUTimeLimit;
-                jobs.addAll(api.launchJob(idExperiment, ind.getIdSolverConfiguration(), cpuTimeLimits, api.getCourseLength(idExperiment)));
+                int[] cpuTimeLimits = new int[courseLength];
+                for (int i = 0; i < courseLength; i++) cpuTimeLimits[i] = jobCPUTimeLimit;
+                jobs.addAll(api.launchJob(idExperiment, ind.getIdSolverConfiguration(), cpuTimeLimits, numJobs));
             }
         }
         
@@ -243,7 +245,7 @@ public class GAConfigurator {
         }
         
         for (Integer idSolverConfig: individual_time_sum.keySet()) {
-            float cost = individual_time_sum.get(idSolverConfig) / api.getCourseLength(idExperiment);
+            float cost = individual_time_sum.get(idSolverConfig) / numJobs;
             api.updateSolverConfigurationCost(idSolverConfig, cost, API.COST_FUNCTIONS.AVERAGE);
             
             for (Individual ind: population) {
