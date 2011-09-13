@@ -12,6 +12,8 @@ import java.util.Scanner;
 
 import edacc.api.API;
 import edacc.api.APIImpl;
+import edacc.api.costfunctions.CostFunction;
+import edacc.api.costfunctions.PARX;
 import edacc.model.ExperimentResult;
 import edacc.model.Instance;
 import edacc.parameterspace.ParameterConfiguration;
@@ -175,7 +177,7 @@ public class GAConfigurator {
     protected List<Individual> initializePopulation(int size) throws Exception {
         List<Individual> population = new ArrayList<Individual>();
         if (useExistingConfigs) {
-            List<Integer> bestConfigs = api.getBestConfigurations(idExperiment, API.COST_FUNCTIONS.AVERAGE, size);
+            List<Integer> bestConfigs = api.getBestConfigurations(idExperiment, new PARX(10), size);
             for (Integer idSolverConfig: bestConfigs) {
                 Individual ind = new Individual(api.getParameterConfiguration(idExperiment, idSolverConfig));
                 ind.setCost(api.getSolverConfigurationCost(idSolverConfig));
@@ -218,7 +220,7 @@ public class GAConfigurator {
                 ind.setName(name);
                 int[] cpuTimeLimits = new int[courseLength];
                 for (int i = 0; i < courseLength; i++) cpuTimeLimits[i] = jobCPUTimeLimit;
-                jobs.addAll(api.launchJob(idExperiment, ind.getIdSolverConfiguration(), cpuTimeLimits, numJobs));
+                jobs.addAll(api.launchJob(idExperiment, ind.getIdSolverConfiguration(), cpuTimeLimits, numJobs, rng));
             }
         }
         
@@ -241,12 +243,12 @@ public class GAConfigurator {
             boolean correct = String.valueOf(result.getResultCode().getResultCode()).startsWith("1");
             individual_time_sum.put(result.getSolverConfigId(),
                         individual_time_sum.get(result.getSolverConfigId()) +
-                        (correct ? result.getResultTime() : result.getCPUTimeLimit()));
+                        (correct ? result.getResultTime() : result.getCPUTimeLimit() * 10.0f));
         }
         
         for (Integer idSolverConfig: individual_time_sum.keySet()) {
             float cost = individual_time_sum.get(idSolverConfig) / numJobs;
-            api.updateSolverConfigurationCost(idSolverConfig, cost, API.COST_FUNCTIONS.AVERAGE);
+            api.updateSolverConfigurationCost(idSolverConfig, cost, new PARX(10));
             
             for (Individual ind: population) {
                 if (ind.getIdSolverConfiguration() == idSolverConfig) {

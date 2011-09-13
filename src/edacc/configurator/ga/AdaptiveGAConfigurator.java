@@ -12,6 +12,8 @@ import java.util.Scanner;
 
 import edacc.api.API;
 import edacc.api.APIImpl;
+import edacc.api.costfunctions.CostFunction;
+import edacc.api.costfunctions.PARX;
 import edacc.model.ExperimentResult;
 import edacc.model.Instance;
 import edacc.parameterspace.ParameterConfiguration;
@@ -158,7 +160,7 @@ public class AdaptiveGAConfigurator {
     protected List<Individual> initializePopulation(int size) throws Exception {
         List<Individual> population = new ArrayList<Individual>();
         if (useExistingConfigs) {
-            List<Integer> bestConfigs = api.getBestConfigurations(idExperiment, API.COST_FUNCTIONS.AVERAGE, size);
+            List<Integer> bestConfigs = api.getBestConfigurations(idExperiment, new PARX(1), size);
             for (Integer idSolverConfig: bestConfigs) {
                 Individual ind = new Individual(api.getParameterConfiguration(idExperiment, idSolverConfig));
                 ind.setCost(api.getSolverConfigurationCost(idSolverConfig));
@@ -228,7 +230,7 @@ public class AdaptiveGAConfigurator {
         
         for (Integer idSolverConfig: individual_time_sum.keySet()) {
             float cost = individual_time_sum.get(idSolverConfig) / parcour.size();
-            api.updateSolverConfigurationCost(idSolverConfig, cost, API.COST_FUNCTIONS.AVERAGE);
+            api.updateSolverConfigurationCost(idSolverConfig, cost, new PARX(1));
             
             for (Individual ind: population) {
                 if (ind.getIdSolverConfiguration() == idSolverConfig) {
