@@ -1,7 +1,6 @@
 package edacc.configurator.ga;
 
 import java.io.File;
-import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -15,21 +14,9 @@ import edacc.api.APIImpl;
 import edacc.api.costfunctions.CostFunction;
 import edacc.api.costfunctions.PARX;
 import edacc.model.ExperimentResult;
-import edacc.model.Instance;
 import edacc.parameterspace.ParameterConfiguration;
 import edacc.parameterspace.graph.ParameterGraph;
 import edacc.util.Pair;
-
-/** Parcour entries */
-class InstanceSeedPair {
-    protected int idInstance;
-    protected BigInteger seed;
-    
-    public InstanceSeedPair(int idInstance, BigInteger seed) {
-        this.idInstance = idInstance;
-        this.seed = seed;
-    }
-}
 
 /**
  * Genetic algorithm configurator using the EDACC API.
@@ -69,6 +56,8 @@ public class GAConfigurator {
     private float mutationStandardDeviationFactor = 0.1f;
     private int maxTerminationCriterionHits = 3;
     private boolean useExistingConfigs = false;
+    
+    private CostFunction costFunction = new PARX(10);
     
     private int terminationCriterionHits = 0;
     private int idExperiment;
@@ -157,14 +146,6 @@ public class GAConfigurator {
         this.maxTerminationCriterionHits = maxTerminationCriterionHits;
         this.useExistingConfigs = useExistingConfigs;
         rng = new edacc.util.MersenneTwister(seed);
-        List<Instance> expInstances = api.getExperimentInstances(idExperiment);
-        // generate parcour, eventually this should come from the database
-        /*parcour = new ArrayList<InstanceSeedPair>();
-        for (int i = 0; i < numRunsPerInstance; i++) {
-            for (Instance instance : expInstances) {
-                parcour.add(new InstanceSeedPair(instance.getId(),BigInteger.valueOf(rng.nextInt(2147483647))));
-            }
-        }*/
         pspace = api.loadParameterGraphFromDB(idExperiment);
         if (pspace == null) throw new Exception("No parameter graph found.");
         this.jobCPUTimeLimit = jobCPUTimeLimit;
@@ -177,7 +158,7 @@ public class GAConfigurator {
     protected List<Individual> initializePopulation(int size) throws Exception {
         List<Individual> population = new ArrayList<Individual>();
         if (useExistingConfigs) {
-            List<Integer> bestConfigs = api.getBestConfigurations(idExperiment, new PARX(10), size);
+            List<Integer> bestConfigs = api.getBestConfigurations(idExperiment, costFunction, size);
             for (Integer idSolverConfig: bestConfigs) {
                 Individual ind = new Individual(api.getParameterConfiguration(idExperiment, idSolverConfig));
                 ind.setCost(api.getSolverConfigurationCost(idSolverConfig));
@@ -236,26 +217,21 @@ public class GAConfigurator {
             if (all_done) break;
         }
         
-        Map<Integer, Float> individual_time_sum = new HashMap<Integer, Float>();
+        Map<Integer, List<ExperimentResult>> resultsBySolverConfig = new HashMap<Integer, List<ExperimentResult>>();
         for (ExperimentResult result: results.values()) {
-            if (!individual_time_sum.containsKey(result.getSolverConfigId()))
-                individual_time_sum.put(result.getSolverConfigId(), 0.0f);
-            boolean correct = String.valueOf(result.getResultCode().getResultCode()).startsWith("1");
-            individual_time_sum.put(result.getSolverConfigId(),
-                        individual_time_sum.get(result.getSolverConfigId()) +
-                        (correct ? result.getResultTime() : result.getCPUTimeLimit() * 10.0f));
+        	if (!resultsBySolverConfig.containsKey(result.getSolverConfigId())) {
+        		resultsBySolverConfig.put(result.getSolverConfigId(), new ArrayList<ExperimentResult>());
+        	}
+        	resultsBySolverConfig.get(result.getSolverConfigId()).add(result);
         }
         
-        for (Integer idSolverConfig: individual_time_sum.keySet()) {
-            float cost = individual_time_sum.get(idSolverConfig) / numJobs;
-            api.updateSolverConfigurationCost(idSolverConfig, cost, new PARX(10));
+        for (Integer idSolverConfig: resultsBySolverConfig.keySet()) {
+            float cost = costFunction.calculateCost(resultsBySolverConfig.get(idSolverConfig));
+            api.updateSolverConfigurationCost(idSolverConfig, cost, costFunction);
             
             for (Individual ind: population) {
                 if (ind.getIdSolverConfiguration() == idSolverConfig) {
                     ind.setCost(cost);
-                    if (ind.getCost() != null && ind.getCost() < 0.00000001f) {
-                        System.out.println("DEBUG assigned cost 0.0 to " + ind.getName() + " " + ind.getIdSolverConfiguration());
-                    }
                 }
             }
         }
@@ -263,9 +239,6 @@ public class GAConfigurator {
         for (Individual ind: population) {
             if (ind.getCost() == null) {
                 ind.setCost(api.getSolverConfigurationCost(ind.getIdSolverConfiguration()));
-                if (ind.getCost() != null && ind.getCost() < 0.00000001f) {
-                    System.out.println("DEBUG assigned cost 0.0 to " + ind.getName() + " " + ind.getIdSolverConfiguration());
-                }
             }
         }
     }
@@ -341,15 +314,14 @@ public class GAConfigurator {
                 if (rng.nextFloat() < crossoverProbability) {
                     Individual parent1 = matingPool.get(i);
                     Individual parent2 = matingPool.get((i+1) % populationSize); // wrap around
+                    Pair<ParameterConfiguration, ParameterConfiguration> children;
                     if (use2PointCrossover) {
-                        Pair<ParameterConfiguration, ParameterConfiguration> children = pspace.crossover2Point(parent1.getConfig(), parent2.getConfig(), rng);
-                        newPopulation.add(new Individual(children.getFirst()));
-                        newPopulation.add(new Individual(children.getSecond()));
+                        children = pspace.crossover2Point(parent1.getConfig(), parent2.getConfig(), rng);
                     } else {
-                        Pair<ParameterConfiguration, ParameterConfiguration> cross = pspace.crossover(parent1.getConfig(), parent2.getConfig(), rng);
-                        newPopulation.add(new Individual(cross.getFirst()));
-                        newPopulation.add(new Individual(cross.getSecond()));
+                        children = pspace.crossover(parent1.getConfig(), parent2.getConfig(), rng);
                     }
+                    newPopulation.add(new Individual(children.getFirst()));
+                    newPopulation.add(new Individual(children.getSecond()));
                 }
                 else {
                     newPopulation.add(matingPool.get(i));
