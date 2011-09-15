@@ -184,7 +184,7 @@ public class GAConfigurator {
     protected void evaluatePopulation(List<Individual> population, int generation) throws Exception {
         List<Integer> jobs = new ArrayList<Integer>();
         int courseLength = api.getCourseLength(idExperiment);
-        int numJobs = Math.min(generation * courseLength / 10, courseLength);
+        int numJobs = Math.min(generation * courseLength / 2, courseLength);
         for (Individual ind : population) {
             if (ind.getIdSolverConfiguration() != 0) continue;
             // check if an equal solver config already exists and use its results
@@ -199,22 +199,24 @@ public class GAConfigurator {
                 ind.setIdSolverConfiguration(api.createSolverConfig(idExperiment, ind.getConfig(), name));
                 ind.setCost(null);
                 ind.setName(name);
-                int[] cpuTimeLimits = new int[courseLength];
-                for (int i = 0; i < courseLength; i++) cpuTimeLimits[i] = jobCPUTimeLimit;
+                int[] cpuTimeLimits = new int[numJobs];
+                for (int i = 0; i < numJobs; i++) cpuTimeLimits[i] = jobCPUTimeLimit;
                 jobs.addAll(api.launchJob(idExperiment, ind.getIdSolverConfiguration(), cpuTimeLimits, numJobs, rng));
             }
         }
         
-        Map<Integer, ExperimentResult> results;
+        Map<Integer, ExperimentResult> results = new HashMap<Integer, ExperimentResult>();
         while (true) {
             Thread.sleep(3000);
             boolean all_done = true;
+            results.clear();
             results = api.getJobsByIDs(jobs);
             for (ExperimentResult result: results.values()) {
                 all_done &= (result.getStatus().getStatusCode() >= 1 ||
                              result.getStatus().getStatusCode() < -1);
             }
             if (all_done) break;
+            System.gc();
         }
         
         Map<Integer, List<ExperimentResult>> resultsBySolverConfig = new HashMap<Integer, List<ExperimentResult>>();
