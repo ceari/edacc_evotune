@@ -14,6 +14,7 @@ import edacc.api.APIImpl;
 import edacc.api.costfunctions.CostFunction;
 import edacc.api.costfunctions.PARX;
 import edacc.model.ExperimentResult;
+import edacc.model.StatusCode;
 import edacc.parameterspace.ParameterConfiguration;
 import edacc.parameterspace.graph.ParameterGraph;
 import edacc.util.Pair;
@@ -201,6 +202,7 @@ public class GAConfigurator {
                 ind.setName(name);
                 int[] cpuTimeLimits = new int[numJobs];
                 for (int i = 0; i < numJobs; i++) cpuTimeLimits[i] = jobCPUTimeLimit;
+                System.out.println("launching " + numJobs + " jobs");
                 jobs.addAll(api.launchJob(idExperiment, ind.getIdSolverConfiguration(), cpuTimeLimits, numJobs, rng));
             }
         }
@@ -340,6 +342,7 @@ public class GAConfigurator {
             
             generation += 1;
             evaluatePopulation(population, generation);
+            SLSImprove(population);
         }
         
         
@@ -357,5 +360,80 @@ public class GAConfigurator {
                 " with average time " + globalBest.getCost() +
                 " - generation avg: " + generationAverage + "----------------------\n----------------------");
 
+    }
+    
+    public void SLSImprove(Individual individual, int steps) throws Exception {
+        System.out.println("running SLS depth " + (3 - steps) + " for " + individual.getName());
+        int maxNeighbours = 5;
+        if (steps <= 0) return;
+        List<ParameterConfiguration> nbh = pspace.getNeighbourhood(individual.getConfig());
+        if (nbh.size() == 0) return;
+        for (int i = 0; i < maxNeighbours; i++) {
+            System.out.println("trying neighbour...");
+            ParameterConfiguration nbr = nbh.get(rng.nextInt(nbh.size()));
+            int count = 1;
+            while (count < nbh.size() && api.exists(idExperiment, nbr) != 0) {
+                nbr = nbh.get(rng.nextInt(nbh.size()));
+            }
+
+            int idSolverConfig = api.createSolverConfig(idExperiment, nbr, api.getCanonicalName(idExperiment, nbr));
+            int numJobs = api.getCourseLength(idExperiment);
+            List<Integer> jobs = new ArrayList<Integer>();
+            int[] cpuTimeLimits = new int[numJobs];
+            for (int j = 0; j < numJobs; j++) cpuTimeLimits[i] = jobCPUTimeLimit;
+            jobs.addAll(api.launchJob(idExperiment, idSolverConfig, cpuTimeLimits, numJobs, rng));
+
+            boolean better = true;
+            Map<Integer, ExperimentResult> results;
+
+            while (true) {
+                Thread.sleep(1000);
+                results = api.getJobsByIDs(jobs);
+                List<ExperimentResult> finishedJobs = new ArrayList<ExperimentResult>();
+                float currentRunningTime = 0.0f;
+                boolean all_done = true;
+                for (ExperimentResult er: results.values()) {
+
+                    all_done &= (er.getStatus().getStatusCode() >= 1 ||
+                             er.getStatus().getStatusCode() < -1);
+                    if (!er.getStatus().equals(StatusCode.RUNNING) && !er.getStatus().equals(StatusCode.NOT_STARTED)) {
+                        finishedJobs.add(er);
+                    }
+                    else if (er.getStatus().equals(StatusCode.RUNNING)) {
+                        currentRunningTime += er.getRunningTime();
+                    }
+                }
+                if (costFunction.calculateCost(finishedJobs) + currentRunningTime >= individual.getCost()) {
+                    System.out.println("neighbour can't beat the configuration anymore. Killing jobs and aboring.");
+                    for (int idJob: jobs) api.killJob(idJob);
+                    better = false;
+                    break;
+                }
+                if (all_done) break;
+            }
+
+            if (better) {
+                List<ExperimentResult> resultList = new ArrayList<ExperimentResult>(results.values());
+                System.out.println("SLS improved cost from " + individual.getCost() + " to " + costFunction.calculateCost(resultList));
+                individual.setConfig(nbr);
+                individual.setCost(costFunction.calculateCost(resultList));
+                individual.setIdSolverConfiguration(idSolverConfig);
+                individual.setName(individual.getName() + " SLS");
+                api.updateSolverConfigurationName(idSolverConfig, individual.getName());
+                api.updateSolverConfigurationCost(idSolverConfig, individual.getCost(), costFunction);
+                SLSImprove(individual, steps - 1);
+                break;
+            }  else {
+                System.out.println("SLS yielded no improvement");
+            }
+        }
+        
+    }
+    
+    public void SLSImprove(List<Individual> population) throws Exception {
+        int maxDepth = 2;
+        for (Individual individual: population) {
+            SLSImprove(individual, maxDepth);
+        }
     }
 }
